@@ -10,13 +10,13 @@
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@500;700;800&family=Courier+Prime:wght@400;700&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
 :root{
-  --bg:#E8ECEF; --paper:#FBFBF8; --ink:#17202B; --mute:#5A6674; --line:#C9D0D7; --accent:#2F43D9; --accent-ink:#fff; --bad:#B3261E;
+  --bg:#E8ECEF; --paper:#FBFBF8; --ink:#17202B; --mute:#5A6674; --line:#C9D0D7; --accent:#2F43D9; --accent-ink:#fff; --bad:#B3261E; --ok:#1E7A46;
   --head:"Bricolage Grotesque","Helvetica Neue",Arial,sans-serif;
   --body:"Instrument Sans","Helvetica Neue",Arial,sans-serif;
   --mono:"Courier Prime","Courier New",monospace;
 }
 @media (prefers-color-scheme:dark){
-  :root{--bg:#10151B; --paper:#1B222B; --ink:#E9EDF1; --mute:#9AA6B2; --line:#2C3541; --accent:#8D9BFF; --accent-ink:#10151B; --bad:#FF8A80}
+  :root{--bg:#10151B; --paper:#1B222B; --ink:#E9EDF1; --mute:#9AA6B2; --line:#2C3541; --accent:#8D9BFF; --accent-ink:#10151B; --bad:#FF8A80; --ok:#6FD69B}
 }
 *{box-sizing:border-box}
 html{scroll-behavior:smooth}
@@ -60,6 +60,23 @@ h2.t{font:700 clamp(28px,4vw,40px)/1.1 var(--head);letter-spacing:-.025em;margin
 .steps li::before{content:"Step " counter(s);display:block;font:600 14px var(--body);color:var(--accent);margin-bottom:6px}
 .steps h3{font:700 22px var(--head);margin:0 0 6px}
 .steps p{margin:0;color:var(--mute)}
+
+/* live activity */
+.pulse{max-width:520px;background:var(--paper);border:1px solid var(--line);padding:20px}
+.pulse-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.dot{width:12px;height:12px;border-radius:50%;background:var(--mute);flex:none}
+.dot.on{background:var(--ok);box-shadow:0 0 0 4px color-mix(in srgb,var(--ok) 25%,transparent)}
+.dot.off{background:var(--bad)}
+.pill{margin-left:auto;font:600 14px var(--body);border:1px solid var(--line);border-radius:999px;padding:4px 12px}
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:18px 0}
+.stats div{display:grid;gap:2px}
+.stats span{font-size:13px;color:var(--mute)}
+.stats b{font:700 26px var(--head)}
+.stats .wide{grid-column:1/-1}
+.spark{display:flex;align-items:flex-end;gap:3px;height:64px;border-bottom:1px solid var(--line)}
+.spark i{flex:1;background:var(--accent);border-radius:2px 2px 0 0;min-height:3px}
+.spark-label{display:flex;justify-content:space-between;font-size:12px;color:var(--mute);margin-top:4px}
+.pulse-foot{font-size:13px;color:var(--mute);margin-top:12px}
 
 .brands{display:flex;flex-wrap:wrap;gap:10px;list-style:none;padding:0;margin:0}
 .brands li{background:var(--paper);border:1px solid var(--line);padding:10px 16px;border-radius:8px;font-weight:500}
@@ -106,7 +123,7 @@ footer p{max-width:60em;margin:0 0 10px}
 <div class="wrap">
   <header>
     <a class="logo" href="#">Slipshare</a>
-    <nav><a href="#how">How it works</a><a href="#demo">Demo</a><a href="#brands">Companies</a><a href="#tiers">Tiers</a><a href="#faq">FAQ</a></nav>
+    <nav><a href="#how">How it works</a><a href="#pulse">Live</a><a href="#demo">Demo</a><a href="#brands">Companies</a><a href="#tiers">Tiers</a><a href="#faq">FAQ</a></nav>
   </header>
 
   <main>
@@ -159,6 +176,27 @@ footer p{max-width:60em;margin:0 0 10px}
         <li><h3>We check it</h3><p>The store and total are read, checked for edits or duplicates, and matched to a listed company.</p></li>
         <li><h3>You own a bit</h3><p>A fractional share of that company is added to your account. Keep it or sell it.</p></li>
       </ol>
+    </section>
+
+    <section id="pulse">
+      <h2 class="t">Live activity</h2>
+      <p class="sec-lede">Real numbers from the demo database, refreshed every 10 seconds. Activity means receipts claimed in the demo, not visitors.</p>
+      <div class="pulse" aria-live="polite">
+        <div class="pulse-top">
+          <span class="dot" id="p-dot"></span><b id="p-status">Checking…</b>
+          <span class="pill" id="p-busy">–</span>
+        </div>
+        <div class="stats">
+          <div><span>Last minute</span><b id="p-min">–</b></div>
+          <div><span>Last hour</span><b id="p-hour">–</b></div>
+          <div><span>Last 24 hours</span><b id="p-day">–</b></div>
+          <div><span>All time</span><b id="p-total">–</b></div>
+          <div class="wide"><span>Receipt value, last 24 hours</span><b id="p-vol">–</b></div>
+        </div>
+        <div class="spark" id="p-spark" role="img" aria-label="Claims per hour over the last 24 hours"></div>
+        <div class="spark-label"><span>24 hours ago</span><span>now</span></div>
+        <div class="pulse-foot" id="p-foot"></div>
+      </div>
     </section>
 
     <section id="demo">
@@ -422,6 +460,7 @@ $("claim").onclick = async () => {
     if (res.ok) {
       $("claim-msg").textContent = "Claimed. This receipt is saved and can’t be claimed again.";
       $("claim").style.display = "none";
+      refreshPulse();
     } else if (res.status === 409) {
       $("claim-msg").textContent = "This receipt has already been claimed.";
       $("claim").style.display = "none";
@@ -445,6 +484,44 @@ function mark(ok) {
 }
 $("yes").onclick = () => mark(true);
 $("no").onclick = () => mark(false);
+
+/* live activity */
+let pulseTimer = null;
+const fmt = n => Number(n).toLocaleString();
+async function refreshPulse() {
+  const t0 = performance.now();
+  try {
+    const res = await fetch(SB_URL + "/rest/v1/rpc/get_activity", {
+      method: "POST",
+      headers: { "apikey": SB_KEY, "Content-Type": "application/json" },
+      body: "{}"
+    });
+    if (!res.ok) throw new Error("status " + res.status);
+    const d = await res.json();
+    const ms = Math.round(performance.now() - t0);
+    $("p-dot").className = "dot on";
+    $("p-status").textContent = "Online · " + ms + " ms";
+    const h = Number(d.last_hour);
+    $("p-busy").textContent = h >= 10 ? "Busy" : h >= 1 ? "Steady" : "Quiet";
+    $("p-min").textContent = fmt(d.last_minute);
+    $("p-hour").textContent = fmt(d.last_hour);
+    $("p-day").textContent = fmt(d.last_24h);
+    $("p-total").textContent = fmt(d.total);
+    $("p-vol").textContent = "$" + Number(d.volume_24h).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const arr = (d.hourly || []).map(Number);
+    const max = Math.max(1, ...arr);
+    $("p-spark").innerHTML = arr.map(c => '<i style="height:' + Math.max(4, Math.round(c / max * 100)) + '%" title="' + c + ' claims"></i>').join("");
+    $("p-foot").textContent = "Updated " + new Date().toLocaleTimeString();
+  } catch (e) {
+    $("p-dot").className = "dot off";
+    $("p-status").textContent = "Live data unavailable";
+    $("p-busy").textContent = "–";
+    $("p-foot").textContent = "Couldn’t reach the database. Retrying…";
+  }
+}
+refreshPulse();
+pulseTimer = setInterval(() => { if (!document.hidden) refreshPulse(); }, 10000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) refreshPulse(); });
 })();
 </script>
 </body>
