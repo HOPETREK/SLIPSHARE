@@ -83,6 +83,7 @@ details p{color:var(--mute);margin:10px 0 0;max-width:42em}
 .scan-card{display:none;background:var(--paper);border:1px solid var(--line);padding:16px;font-family:var(--mono);font-size:15px}
 .scan-card .row b{text-align:right}
 .warn{color:var(--bad);margin-top:8px;font-family:var(--body);font-size:15px}
+#claim-msg{margin-top:10px;font-family:var(--body);font-size:15px;color:var(--ink)}
 #demo .fb{display:none;gap:10px;margin-top:12px}
 #demo .fb button{flex:1;padding:12px;border-radius:10px;border:1px solid var(--line);background:var(--paper);color:var(--ink);font-size:16px;font-weight:600;font-family:inherit;cursor:pointer}
 #demo details{border-bottom:0;padding:0;margin-top:16px;font-size:14px}
@@ -162,7 +163,7 @@ footer p{max-width:60em;margin:0 0 10px}
 
     <section id="demo">
       <h2 class="t">Try the receipt scanner</h2>
-      <p class="sec-lede">An early demo of the camera step. It opens your live camera and reads the receipt on your phone. Nothing is uploaded. Accuracy varies, and this demo can’t yet tell if a receipt is fake.</p>
+      <p class="sec-lede">An early demo of the camera step. It opens your live camera and reads the receipt on your phone, and the photo never leaves your device. If you tap Claim, only the store, date and total are saved so the same receipt can’t be claimed twice. No rewards are paid. Accuracy varies, and this demo can’t yet tell if a receipt is fake.</p>
       <div class="box">
         <button class="btn" id="open">Open camera</button>
         <video id="cam" playsinline muted></video>
@@ -175,6 +176,8 @@ footer p{max-width:60em;margin:0 0 10px}
           <div class="row"><span>Date</span><b id="o-date"></b></div>
           <div class="row"><span>Total</span><b id="o-total"></b></div>
           <div class="warn" id="o-warn"></div>
+          <button class="btn" id="claim" style="display:none">Claim this receipt (demo)</button>
+          <div id="claim-msg" role="status"></div>
         </div>
         <div class="fb" id="fb">
           <button id="yes">Total is correct</button>
@@ -267,7 +270,9 @@ update();
 <script>
 (() => {
 const $ = id => document.getElementById(id);
-let stream = null, worker = null, right = 0, tested = 0, answered = true;
+const SB_URL = "https://hyhzsyvzmmmucpvvnsux.supabase.co";
+const SB_KEY = "sb_publishable_scOyb3dXG0w7igUoFyLPsQ_sU6L6JYp";
+let stream = null, worker = null, right = 0, tested = 0, answered = true, last = null;
 
 $("open").onclick = async () => {
   try {
@@ -359,7 +364,6 @@ function parse(text) {
     const all = (text.match(MONEY) || []).map(toNumber).filter(n => !isNaN(n));
     if (all.length) { out.total = Math.max(...all); out.guessed = true; }
   }
-  // Does it look like a receipt? Score out of 5.
   const prices = (text.match(MONEY) || []).map(toNumber).filter(n => !isNaN(n));
   const kws = new Set((text.match(KW) || []).map(k => k.toLowerCase().replace(/\s+/g, "")));
   let score = 0;
@@ -373,17 +377,23 @@ function parse(text) {
 }
 
 function show(r) {
+  last = r;
   const ok = r.isReceipt;
   $("o-check").textContent = (ok ? "Looks like a receipt" : "Doesn’t look like a receipt") + " (" + r.score + "/5)";
   $("o-store").textContent = ok ? (r.store || "Not found") : "—";
   $("o-date").textContent = ok ? (r.date || "Not found") : "—";
   $("o-total").textContent = ok ? (r.total != null ? r.total.toFixed(2) : "Not found") : "—";
+  $("claim-msg").textContent = "";
+  const canClaim = ok && r.total != null && !r.guessed && !!r.date;
+  $("claim").style.display = canClaim ? "block" : "none";
+  $("claim").disabled = false;
   const w = [];
   if (!ok) {
     w.push("Try again with a paper receipt flat in view, in good light.");
   } else {
     if (r.guessed) w.push("No “total” line found, so this is the largest amount on the receipt.");
     if (r.total == null) w.push("Try again with better light and the whole receipt flat in view.");
+    if (ok && !canClaim) w.push("To claim, the scan needs a clear date and total line.");
     w.push("This demo can’t tell if a receipt is fake or edited.");
   }
   $("o-warn").textContent = w.join(" ");
@@ -391,6 +401,39 @@ function show(r) {
   $("fb").style.display = ok ? "flex" : "none";
   answered = !ok;
 }
+
+async function sha256(s) {
+  const b = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
+  return Array.from(new Uint8Array(b)).map(x => x.toString(16).padStart(2, "0")).join("");
+}
+const norm = s => (s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+
+$("claim").onclick = async () => {
+  if (!last || last.total == null) return;
+  $("claim").disabled = true;
+  $("claim-msg").textContent = "Checking…";
+  try {
+    const fp = await sha256([norm(last.store), norm(last.date), last.total.toFixed(2)].join("|"));
+    const res = await fetch(SB_URL + "/rest/v1/receipt_claims", {
+      method: "POST",
+      headers: { "apikey": SB_KEY, "Content-Type": "application/json", "Prefer": "return=minimal" },
+      body: JSON.stringify({ fingerprint: fp, store: last.store, receipt_date: last.date, total: last.total })
+    });
+    if (res.ok) {
+      $("claim-msg").textContent = "Claimed. This receipt is saved and can’t be claimed again.";
+      $("claim").style.display = "none";
+    } else if (res.status === 409) {
+      $("claim-msg").textContent = "This receipt has already been claimed.";
+      $("claim").style.display = "none";
+    } else {
+      $("claim-msg").textContent = "Couldn’t save the claim (error " + res.status + ").";
+      $("claim").disabled = false;
+    }
+  } catch (e) {
+    $("claim-msg").textContent = "Couldn’t reach the database. Check your connection and try again.";
+    $("claim").disabled = false;
+  }
+};
 
 function mark(ok) {
   if (answered) return;
