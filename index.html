@@ -170,6 +170,7 @@ footer p{max-width:60em;margin:0 0 10px}
         <img id="preview" alt="Your receipt photo">
         <div id="status" role="status"></div>
         <div class="scan-card" id="card">
+          <div class="row"><span>Receipt check</span><b id="o-check"></b></div>
           <div class="row"><span>Store (guess)</span><b id="o-store"></b></div>
           <div class="row"><span>Date</span><b id="o-date"></b></div>
           <div class="row"><span>Total</span><b id="o-total"></b></div>
@@ -341,10 +342,11 @@ function toNumber(s) {
   return parseFloat(m[1].replace(/[.,]/g, "") + "." + m[2]);
 }
 const MONEY = /\d{1,3}(?:[.,\s]\d{3})*[.,]\d{2}|\d+[.,]\d{2}/g;
+const KW = /\b(sub\s*-?\s*total|total|tax|vat|gst|cash|card|visa|mastercard|change|qty|thank you|receipt|invoice|balance)\b/gi;
 
 function parse(text) {
   const lines = text.split(/\n/).map(l => l.trim()).filter(Boolean);
-  const out = { store: null, date: null, total: null, guessed: false };
+  const out = { store: null, date: null, total: null, guessed: false, score: 0, isReceipt: false };
   out.store = (lines.find(l => /[A-Za-z]{3,}/.test(l)) || "").replace(/[^A-Za-z0-9&'.\- ]/g, "").trim() || null;
   const dm = text.match(/\b(\d{4}[-\/.]\d{1,2}[-\/.]\d{1,2}|\d{1,2}[-\/.]\d{1,2}[-\/.]\d{2,4}|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.? \d{1,2},? \d{4})\b/i);
   out.date = dm ? dm[1] : null;
@@ -357,21 +359,37 @@ function parse(text) {
     const all = (text.match(MONEY) || []).map(toNumber).filter(n => !isNaN(n));
     if (all.length) { out.total = Math.max(...all); out.guessed = true; }
   }
+  // Does it look like a receipt? Score out of 5.
+  const prices = (text.match(MONEY) || []).map(toNumber).filter(n => !isNaN(n));
+  const kws = new Set((text.match(KW) || []).map(k => k.toLowerCase().replace(/\s+/g, "")));
+  let score = 0;
+  if (prices.length >= 3) score += 1;
+  if (out.date) score += 1;
+  if (out.total != null && !out.guessed) score += 2;
+  if (kws.size >= 2) score += 1;
+  out.score = score;
+  out.isReceipt = score >= 3;
   return out;
 }
 
 function show(r) {
-  $("o-store").textContent = r.store || "Not found";
-  $("o-date").textContent = r.date || "Not found";
-  $("o-total").textContent = r.total != null ? r.total.toFixed(2) : "Not found";
+  const ok = r.isReceipt;
+  $("o-check").textContent = (ok ? "Looks like a receipt" : "Doesn’t look like a receipt") + " (" + r.score + "/5)";
+  $("o-store").textContent = ok ? (r.store || "Not found") : "—";
+  $("o-date").textContent = ok ? (r.date || "Not found") : "—";
+  $("o-total").textContent = ok ? (r.total != null ? r.total.toFixed(2) : "Not found") : "—";
   const w = [];
-  if (r.guessed) w.push("No “total” line found, so this is the largest amount on the receipt.");
-  if (r.total == null) w.push("Try again with better light and the whole receipt flat in view.");
-  w.push("This demo can’t tell if a receipt is fake or edited.");
+  if (!ok) {
+    w.push("Try again with a paper receipt flat in view, in good light.");
+  } else {
+    if (r.guessed) w.push("No “total” line found, so this is the largest amount on the receipt.");
+    if (r.total == null) w.push("Try again with better light and the whole receipt flat in view.");
+    w.push("This demo can’t tell if a receipt is fake or edited.");
+  }
   $("o-warn").textContent = w.join(" ");
   $("card").style.display = "block";
-  $("fb").style.display = "flex";
-  answered = false;
+  $("fb").style.display = ok ? "flex" : "none";
+  answered = !ok;
 }
 
 function mark(ok) {
